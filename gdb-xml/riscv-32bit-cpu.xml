@@ -20,8 +20,7 @@
   <reg name="a0" bitsize="32" type="int"/>
   <reg name="a1" bitsize="32" type="int"/>
   <reg name="a2" bitsize="32" type="int"/>
-  <reg name="a3" bitsize="32" type="int"/>
-  <reg name="a4" bitsize="32" type="int"/>
+  <reg name="a3" bitsize="32" type="int"/> <reg name="a4" bitsize="32" type="int"/>
   <reg name="a5" bitsize="32" type="int"/>
   <reg name="a6" bitsize="32" type="int"/>
   <reg name="a7" bitsize="32" type="int"/>

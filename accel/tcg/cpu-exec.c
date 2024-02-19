@@ -17,6 +17,7 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "cpu_bits.h"
 #include "qemu/osdep.h"
 #include "qemu/qemu-print.h"
 #include "qapi/error.h"
@@ -44,6 +45,8 @@
 #include "tb-context.h"
 #include "internal-common.h"
 #include "internal-target.h"
+
+#define SECURITY_EXTENSION
 
 /* -icount align implementation. */
 
@@ -495,6 +498,21 @@ cpu_tb_exec(CPUState *cpu, TranslationBlock *itb, int *tb_exit)
         }
     }
 
+    /* process instruction count for security extension */
+    #ifdef SECURITY_EXTENSION
+
+    if (env->ic > 0) {
+        // qemu_log("env->ic = %d\t%x\n", (int)env->ic, (unsigned int)env->pc);
+        env->ic--;
+        if (env->ic == 0) {
+            cpu->exception_index = RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR;
+            cpu_loop_exit(cpu);
+        }
+    }
+
+    #endif
+
+
     /*
      * If gdb single-step, and we haven't raised another exception,
      * raise a debug exception.  Single-step with another exception
@@ -726,6 +744,16 @@ static inline bool cpu_handle_exception(CPUState *cpu, int *ret)
 #endif
         return false;
     }
+#ifdef SECURITY_EXTENSION
+    if (cpu->exception_index == RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR) {
+        qemu_log("cpu_handle_exception\n");
+        *ret = cpu->exception_index;
+        cpu->exception_index = -1;
+        
+        return false;
+    }
+#endif
+
     if (cpu->exception_index >= EXCP_INTERRUPT) {
         /* exit request from the cpu execution loop */
         *ret = cpu->exception_index;

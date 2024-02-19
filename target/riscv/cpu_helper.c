@@ -1656,6 +1656,12 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     if (!async) {
         /* set tval to badaddr for traps with address information */
         switch (cause) {
+        case RISCV_EXCP_ILLEGAL_RET_ERROR:
+            qemu_log("riscv_cpu_do_interrupt\n");
+            env->mcause = RISCV_EXCP_ILLEGAL_RET_ERROR;
+            env->mtval = 0;
+            env->pc += 4;
+            return;       
         case RISCV_EXCP_SEMIHOST:
             do_common_semihosting(cs);
             env->pc += 4;
