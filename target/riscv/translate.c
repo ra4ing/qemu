@@ -37,9 +37,11 @@
 #include "exec/helper-info.c.inc"
 #undef  HELPER_H
 
-/* global register indices */
+#define NUMSREG 5
+ /* global register indices */
 static TCGv cpu_gpr[32], cpu_gprh[32], cpu_pc, cpu_vl, cpu_vstart;
 static TCGv_i64 cpu_fpr[32]; /* assume F and D extensions */
+static TCGv_i64 cpu_sreg[NUMSREG]; /* assume Security extension */
 static TCGv load_res;
 static TCGv load_val;
 /* globals for PM CSRs */
@@ -82,7 +84,7 @@ typedef struct DisasContext {
     RISCVMXL ol;
     bool virt_inst_excp;
     bool virt_enabled;
-    const RISCVCPUConfig *cfg_ptr;
+    const RISCVCPUConfig* cfg_ptr;
     /* vector extension */
     bool vill;
     /*
@@ -104,7 +106,7 @@ typedef struct DisasContext {
     bool cfg_vta_all_1s;
     bool vstart_eq_zero;
     bool vl_eq_vlmax;
-    CPUState *cs;
+    CPUState* cs;
     TCGv zero;
     /* PointerMasking extension */
     bool pm_mask_enabled;
@@ -114,10 +116,10 @@ typedef struct DisasContext {
     /* FRM is known to contain a valid value. */
     bool frm_valid;
     /* TCG of the current insn_start */
-    TCGOp *insn_start;
+    TCGOp* insn_start;
 } DisasContext;
 
-static inline bool has_ext(DisasContext *ctx, uint32_t ext)
+static inline bool has_ext(DisasContext* ctx, uint32_t ext)
 {
     return ctx->misa_ext & ext;
 }
@@ -139,7 +141,7 @@ static inline bool has_ext(DisasContext *ctx, uint32_t ext)
 #endif
 
 /* The word size for this machine mode. */
-static inline int __attribute__((unused)) get_xlen(DisasContext *ctx)
+static inline int __attribute__((unused)) get_xlen(DisasContext* ctx)
 {
     return 16 << get_xl(ctx);
 }
@@ -151,7 +153,7 @@ static inline int __attribute__((unused)) get_xlen(DisasContext *ctx)
 #define get_ol(ctx)    ((ctx)->ol)
 #endif
 
-static inline int get_olen(DisasContext *ctx)
+static inline int get_olen(DisasContext* ctx)
 {
     return 16 << get_ol(ctx);
 }
@@ -203,15 +205,15 @@ static void gen_check_nanbox_s(TCGv_i64 out, TCGv_i64 in)
     tcg_gen_movcond_i64(TCG_COND_GEU, out, in, t_max, in, t_nan);
 }
 
-static void decode_save_opc(DisasContext *ctx)
+static void decode_save_opc(DisasContext* ctx)
 {
     assert(ctx->insn_start != NULL);
     tcg_set_insn_start_param(ctx->insn_start, 1, ctx->opcode);
     ctx->insn_start = NULL;
 }
 
-static void gen_pc_plus_diff(TCGv target, DisasContext *ctx,
-                             target_long diff)
+static void gen_pc_plus_diff(TCGv target, DisasContext* ctx,
+    target_long diff)
 {
     target_ulong dest = ctx->base.pc_next + diff;
 
@@ -221,7 +223,8 @@ static void gen_pc_plus_diff(TCGv target, DisasContext *ctx,
         if (get_xl(ctx) == MXL_RV32) {
             tcg_gen_ext32s_tl(target, target);
         }
-    } else {
+    }
+    else {
         if (get_xl(ctx) == MXL_RV32) {
             dest = (int32_t)dest;
         }
@@ -229,37 +232,38 @@ static void gen_pc_plus_diff(TCGv target, DisasContext *ctx,
     }
 }
 
-static void gen_update_pc(DisasContext *ctx, target_long diff)
+static void gen_update_pc(DisasContext* ctx, target_long diff)
 {
     gen_pc_plus_diff(cpu_pc, ctx, diff);
     ctx->pc_save = ctx->base.pc_next + diff;
 }
 
-static void generate_exception(DisasContext *ctx, int excp)
+static void generate_exception(DisasContext* ctx, int excp)
 {
     gen_update_pc(ctx, 0);
     gen_helper_raise_exception(tcg_env, tcg_constant_i32(excp));
     ctx->base.is_jmp = DISAS_NORETURN;
 }
 
-static void gen_exception_illegal(DisasContext *ctx)
+static void gen_exception_illegal(DisasContext* ctx)
 {
     tcg_gen_st_i32(tcg_constant_i32(ctx->opcode), tcg_env,
-                   offsetof(CPURISCVState, bins));
+        offsetof(CPURISCVState, bins));
     if (ctx->virt_inst_excp) {
         generate_exception(ctx, RISCV_EXCP_VIRT_INSTRUCTION_FAULT);
-    } else {
+    }
+    else {
         generate_exception(ctx, RISCV_EXCP_ILLEGAL_INST);
     }
 }
 
-static void gen_exception_inst_addr_mis(DisasContext *ctx, TCGv target)
+static void gen_exception_inst_addr_mis(DisasContext* ctx, TCGv target)
 {
     tcg_gen_st_tl(target, tcg_env, offsetof(CPURISCVState, badaddr));
     generate_exception(ctx, RISCV_EXCP_INST_ADDR_MIS);
 }
 
-static void lookup_and_goto_ptr(DisasContext *ctx)
+static void lookup_and_goto_ptr(DisasContext* ctx)
 {
 #ifndef CONFIG_USER_ONLY
     if (ctx->itrigger) {
@@ -269,7 +273,7 @@ static void lookup_and_goto_ptr(DisasContext *ctx)
     tcg_gen_lookup_and_goto_ptr();
 }
 
-static void exit_tb(DisasContext *ctx)
+static void exit_tb(DisasContext* ctx)
 {
 #ifndef CONFIG_USER_ONLY
     if (ctx->itrigger) {
@@ -279,14 +283,14 @@ static void exit_tb(DisasContext *ctx)
     tcg_gen_exit_tb(NULL, 0);
 }
 
-static void gen_goto_tb(DisasContext *ctx, int n, target_long diff)
+static void gen_goto_tb(DisasContext* ctx, int n, target_long diff)
 {
     target_ulong dest = ctx->base.pc_next + diff;
 
-     /*
-      * Under itrigger, instruction executes one by one like singlestep,
-      * direct block chain benefits will be small.
-      */
+    /*
+     * Under itrigger, instruction executes one by one like singlestep,
+     * direct block chain benefits will be small.
+     */
     if (translator_use_goto_tb(&ctx->base, dest) && !ctx->itrigger) {
         /*
          * For pcrel, the pc must always be up-to-date on entry to
@@ -299,12 +303,14 @@ static void gen_goto_tb(DisasContext *ctx, int n, target_long diff)
         if (tb_cflags(ctx->base.tb) & CF_PCREL) {
             gen_update_pc(ctx, diff);
             tcg_gen_goto_tb(n);
-        } else {
+        }
+        else {
             tcg_gen_goto_tb(n);
             gen_update_pc(ctx, diff);
         }
         tcg_gen_exit_tb(ctx->base.tb, n);
-    } else {
+    }
+    else {
         gen_update_pc(ctx, diff);
         lookup_and_goto_ptr(ctx);
     }
@@ -318,7 +324,119 @@ static void gen_goto_tb(DisasContext *ctx, int n, target_long diff)
  *
  * Further, we may provide an extension for word operations.
  */
-static TCGv get_gpr(DisasContext *ctx, int reg_num, DisasExtend ext)
+#define RETA 0
+#define JMPA 1
+#define ICA  2
+#define IC   3
+#define ERR  4
+
+ // static void gen_raise_exception(DisasContext* ctx)
+ // {
+ //     CPUState* cpu = ctx->cs;
+ //     cpu->exception_index = RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR;
+ //     cpu_loop_exit(cpu);
+ // }
+
+static void gen_set_ic(DisasContext* ctx, TCGv ica, TCGv ic)
+{
+    TCGLabel* label_ica_is_zero = gen_new_label();
+    TCGLabel* label_error = gen_new_label();
+    TCGLabel* done = gen_new_label();
+
+    // check if cpu_sreg[ICA] equals 0
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[ICA], 0, label_ica_is_zero);
+    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[ICA], cpu_pc, label_error);
+
+    // set ica and ic
+    gen_set_label(label_ica_is_zero);
+    tcg_gen_mov_tl(cpu_sreg[ICA], ica);
+    tcg_gen_mov_tl(cpu_sreg[IC], ic);
+    tcg_gen_br(done);
+
+    // error
+    gen_set_label(label_error);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+
+    // done
+    gen_set_label(done);
+
+
+}
+
+static void gen_check_reta(DisasContext* ctx, TCGv target_pc)
+{
+    TCGLabel* label_error = gen_new_label();
+    TCGLabel* done = gen_new_label();
+
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[RETA], 0, label_error);
+    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[RETA], target_pc, label_error);
+    tcg_gen_movi_tl(cpu_sreg[RETA], 0);
+    tcg_gen_br(done);
+
+    // error
+    gen_set_label(label_error);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR);
+
+    // done
+    gen_set_label(done);
+}
+
+static void gen_set_reta(DisasContext* ctx, TCGv t)
+{
+    TCGLabel* label_error = gen_new_label();
+    TCGLabel* done = gen_new_label();
+
+    tcg_gen_brcondi_tl(TCG_COND_NE, cpu_sreg[RETA], 0, label_error);
+    tcg_gen_mov_tl(cpu_sreg[RETA], t);
+    tcg_gen_br(done);
+
+    // error
+    gen_set_label(label_error);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+
+    // done
+    gen_set_label(done);
+}
+
+static void gen_check_jmpa(DisasContext* ctx, int rd, int imm)
+{
+    TCGLabel* label_error = gen_new_label();
+    TCGLabel* done = gen_new_label();
+    TCGv target_address = tcg_temp_new();
+    tcg_gen_movi_tl(target_address, imm);
+
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[JMPA], 0, label_error);
+    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[JMPA], target_address, label_error);
+    tcg_gen_movi_tl(cpu_sreg[JMPA], 0);
+    tcg_gen_br(done);
+
+    // error
+    gen_set_label(label_error);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+
+    // done
+    gen_set_label(done);
+}
+
+static void gen_set_jmpa(DisasContext* ctx, TCGv t)
+{
+    TCGLabel* label_error = gen_new_label();
+    TCGLabel* done = gen_new_label();
+
+    tcg_gen_brcondi_tl(TCG_COND_NE, cpu_sreg[JMPA], 0, label_error);
+    tcg_gen_mov_tl(cpu_sreg[JMPA], t);
+    tcg_gen_br(done);
+
+    // error
+    gen_set_label(label_error);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+
+    // done
+    gen_set_label(done);
+}
+
+
+static TCGv get_gpr(DisasContext* ctx, int reg_num, DisasExtend ext)
 {
     TCGv t;
 
@@ -352,7 +470,7 @@ static TCGv get_gpr(DisasContext *ctx, int reg_num, DisasExtend ext)
     return cpu_gpr[reg_num];
 }
 
-static TCGv get_gprh(DisasContext *ctx, int reg_num)
+static TCGv get_gprh(DisasContext* ctx, int reg_num)
 {
     assert(get_xl(ctx) == MXL_RV128);
     if (reg_num == 0) {
@@ -361,7 +479,7 @@ static TCGv get_gprh(DisasContext *ctx, int reg_num)
     return cpu_gprh[reg_num];
 }
 
-static TCGv dest_gpr(DisasContext *ctx, int reg_num)
+static TCGv dest_gpr(DisasContext* ctx, int reg_num)
 {
     if (reg_num == 0 || get_olen(ctx) < TARGET_LONG_BITS) {
         return tcg_temp_new();
@@ -369,7 +487,7 @@ static TCGv dest_gpr(DisasContext *ctx, int reg_num)
     return cpu_gpr[reg_num];
 }
 
-static TCGv dest_gprh(DisasContext *ctx, int reg_num)
+static TCGv dest_gprh(DisasContext* ctx, int reg_num)
 {
     if (reg_num == 0) {
         return tcg_temp_new();
@@ -377,7 +495,7 @@ static TCGv dest_gprh(DisasContext *ctx, int reg_num)
     return cpu_gprh[reg_num];
 }
 
-static void gen_set_gpr(DisasContext *ctx, int reg_num, TCGv t)
+static void gen_set_gpr(DisasContext* ctx, int reg_num, TCGv t)
 {
     if (reg_num != 0) {
         switch (get_ol(ctx)) {
@@ -398,7 +516,7 @@ static void gen_set_gpr(DisasContext *ctx, int reg_num, TCGv t)
     }
 }
 
-static void gen_set_gpri(DisasContext *ctx, int reg_num, target_long imm)
+static void gen_set_gpri(DisasContext* ctx, int reg_num, target_long imm)
 {
     if (reg_num != 0) {
         switch (get_ol(ctx)) {
@@ -419,7 +537,7 @@ static void gen_set_gpri(DisasContext *ctx, int reg_num, target_long imm)
     }
 }
 
-static void gen_set_gpr128(DisasContext *ctx, int reg_num, TCGv rl, TCGv rh)
+static void gen_set_gpr128(DisasContext* ctx, int reg_num, TCGv rl, TCGv rh)
 {
     assert(get_ol(ctx) == MXL_RV128);
     if (reg_num != 0) {
@@ -428,7 +546,7 @@ static void gen_set_gpr128(DisasContext *ctx, int reg_num, TCGv rl, TCGv rh)
     }
 }
 
-static TCGv_i64 get_fpr_hs(DisasContext *ctx, int reg_num)
+static TCGv_i64 get_fpr_hs(DisasContext* ctx, int reg_num)
 {
     if (!ctx->cfg_ptr->ext_zfinx) {
         return cpu_fpr[reg_num];
@@ -446,7 +564,7 @@ static TCGv_i64 get_fpr_hs(DisasContext *ctx, int reg_num)
         return t;
     }
 #else
-    /* fall through */
+        /* fall through */
     case MXL_RV64:
         return cpu_gpr[reg_num];
 #endif
@@ -455,7 +573,7 @@ static TCGv_i64 get_fpr_hs(DisasContext *ctx, int reg_num)
     }
 }
 
-static TCGv_i64 get_fpr_d(DisasContext *ctx, int reg_num)
+static TCGv_i64 get_fpr_d(DisasContext* ctx, int reg_num)
 {
     if (!ctx->cfg_ptr->ext_zfinx) {
         return cpu_fpr[reg_num];
@@ -480,7 +598,7 @@ static TCGv_i64 get_fpr_d(DisasContext *ctx, int reg_num)
     }
 }
 
-static TCGv_i64 dest_fpr(DisasContext *ctx, int reg_num)
+static TCGv_i64 dest_fpr(DisasContext* ctx, int reg_num)
 {
     if (!ctx->cfg_ptr->ext_zfinx) {
         return cpu_fpr[reg_num];
@@ -503,7 +621,7 @@ static TCGv_i64 dest_fpr(DisasContext *ctx, int reg_num)
 }
 
 /* assume it is nanboxing (for normal) or sign-extended (for zfinx) */
-static void gen_set_fpr_hs(DisasContext *ctx, int reg_num, TCGv_i64 t)
+static void gen_set_fpr_hs(DisasContext* ctx, int reg_num, TCGv_i64 t)
 {
     if (!ctx->cfg_ptr->ext_zfinx) {
         tcg_gen_mov_i64(cpu_fpr[reg_num], t);
@@ -516,7 +634,7 @@ static void gen_set_fpr_hs(DisasContext *ctx, int reg_num, TCGv_i64 t)
             tcg_gen_extrl_i64_i32(cpu_gpr[reg_num], t);
             break;
 #else
-        /* fall through */
+            /* fall through */
         case MXL_RV64:
             tcg_gen_mov_i64(cpu_gpr[reg_num], t);
             break;
@@ -527,7 +645,7 @@ static void gen_set_fpr_hs(DisasContext *ctx, int reg_num, TCGv_i64 t)
     }
 }
 
-static void gen_set_fpr_d(DisasContext *ctx, int reg_num, TCGv_i64 t)
+static void gen_set_fpr_d(DisasContext* ctx, int reg_num, TCGv_i64 t)
 {
     if (!ctx->cfg_ptr->ext_zfinx) {
         tcg_gen_mov_i64(cpu_fpr[reg_num], t);
@@ -554,7 +672,7 @@ static void gen_set_fpr_d(DisasContext *ctx, int reg_num, TCGv_i64 t)
     }
 }
 
-static void gen_jal(DisasContext *ctx, int rd, target_ulong imm)
+static void gen_jal(DisasContext* ctx, int rd, target_ulong imm)
 {
     TCGv succ_pc = dest_gpr(ctx, rd);
 
@@ -576,7 +694,7 @@ static void gen_jal(DisasContext *ctx, int rd, target_ulong imm)
 }
 
 /* Compute a canonical address from a register plus offset. */
-static TCGv get_address(DisasContext *ctx, int rs1, int imm)
+static TCGv get_address(DisasContext* ctx, int rs1, int imm)
 {
     TCGv addr = tcg_temp_new();
     TCGv src1 = get_gpr(ctx, rs1, EXT_NONE);
@@ -584,7 +702,8 @@ static TCGv get_address(DisasContext *ctx, int rs1, int imm)
     tcg_gen_addi_tl(addr, src1, imm);
     if (ctx->pm_mask_enabled) {
         tcg_gen_andc_tl(addr, addr, pm_mask);
-    } else if (get_address_xl(ctx) == MXL_RV32) {
+    }
+    else if (get_address_xl(ctx) == MXL_RV32) {
         tcg_gen_ext32u_tl(addr, addr);
     }
     if (ctx->pm_base_enabled) {
@@ -595,7 +714,7 @@ static TCGv get_address(DisasContext *ctx, int rs1, int imm)
 }
 
 /* Compute a canonical address from a register plus reg offset. */
-static TCGv get_address_indexed(DisasContext *ctx, int rs1, TCGv offs)
+static TCGv get_address_indexed(DisasContext* ctx, int rs1, TCGv offs)
 {
     TCGv addr = tcg_temp_new();
     TCGv src1 = get_gpr(ctx, rs1, EXT_NONE);
@@ -603,7 +722,8 @@ static TCGv get_address_indexed(DisasContext *ctx, int rs1, TCGv offs)
     tcg_gen_add_tl(addr, src1, offs);
     if (ctx->pm_mask_enabled) {
         tcg_gen_andc_tl(addr, addr, pm_mask);
-    } else if (get_xl(ctx) == MXL_RV32) {
+    }
+    else if (get_xl(ctx) == MXL_RV32) {
         tcg_gen_ext32u_tl(addr, addr);
     }
     if (ctx->pm_base_enabled) {
@@ -617,7 +737,7 @@ static TCGv get_address_indexed(DisasContext *ctx, int rs1, TCGv offs)
  * We will have already diagnosed disabled state,
  * and need to turn initial/clean into dirty.
  */
-static void mark_fs_dirty(DisasContext *ctx)
+static void mark_fs_dirty(DisasContext* ctx)
 {
     TCGv tmp;
 
@@ -642,7 +762,7 @@ static void mark_fs_dirty(DisasContext *ctx)
     }
 }
 #else
-static inline void mark_fs_dirty(DisasContext *ctx) { }
+static inline void mark_fs_dirty(DisasContext* ctx) { }
 #endif
 
 #ifndef CONFIG_USER_ONLY
@@ -650,7 +770,7 @@ static inline void mark_fs_dirty(DisasContext *ctx) { }
  * We will have already diagnosed disabled state,
  * and need to turn initial/clean into dirty.
  */
-static void mark_vs_dirty(DisasContext *ctx)
+static void mark_vs_dirty(DisasContext* ctx)
 {
     TCGv tmp;
 
@@ -671,10 +791,10 @@ static void mark_vs_dirty(DisasContext *ctx)
     }
 }
 #else
-static inline void mark_vs_dirty(DisasContext *ctx) { }
+static inline void mark_vs_dirty(DisasContext* ctx) { }
 #endif
 
-static void gen_set_rm(DisasContext *ctx, int rm)
+static void gen_set_rm(DisasContext* ctx, int rm)
 {
     if (ctx->frm == rm) {
         return;
@@ -691,7 +811,7 @@ static void gen_set_rm(DisasContext *ctx, int rm)
     gen_helper_set_rounding_mode(tcg_env, tcg_constant_i32(rm));
 }
 
-static void gen_set_rm_chkfrm(DisasContext *ctx, int rm)
+static void gen_set_rm_chkfrm(DisasContext* ctx, int rm)
 {
     if (ctx->frm == rm && ctx->frm_valid) {
         return;
@@ -704,7 +824,7 @@ static void gen_set_rm_chkfrm(DisasContext *ctx, int rm)
     gen_helper_set_rounding_mode_chkfrm(tcg_env, tcg_constant_i32(rm));
 }
 
-static int ex_plus_1(DisasContext *ctx, int nf)
+static int ex_plus_1(DisasContext* ctx, int nf)
 {
     return nf + 1;
 }
@@ -757,17 +877,17 @@ EX_SH(12)
     }                                            \
 } while (0)
 
-static int ex_rvc_register(DisasContext *ctx, int reg)
+static int ex_rvc_register(DisasContext* ctx, int reg)
 {
     return 8 + reg;
 }
 
-static int ex_sreg_register(DisasContext *ctx, int reg)
+static int ex_sreg_register(DisasContext* ctx, int reg)
 {
     return reg < 2 ? reg + 8 : reg + 16;
 }
 
-static int ex_rvc_shiftli(DisasContext *ctx, int imm)
+static int ex_rvc_shiftli(DisasContext* ctx, int imm)
 {
     /* For RV128 a shamt of 0 means a shift by 64. */
     if (get_ol(ctx) == MXL_RV128) {
@@ -776,7 +896,7 @@ static int ex_rvc_shiftli(DisasContext *ctx, int imm)
     return imm;
 }
 
-static int ex_rvc_shiftri(DisasContext *ctx, int imm)
+static int ex_rvc_shiftri(DisasContext* ctx, int imm)
 {
     /*
      * For RV128 a shamt of 0 means a shift by 64, furthermore, for right
@@ -792,8 +912,8 @@ static int ex_rvc_shiftri(DisasContext *ctx, int imm)
 /* Include the auto-generated decoder for 32 bit insn */
 #include "decode-insn32.c.inc"
 
-static bool gen_logic_imm_fn(DisasContext *ctx, arg_i *a,
-                             void (*func)(TCGv, TCGv, target_long))
+static bool gen_logic_imm_fn(DisasContext* ctx, arg_i* a,
+    void (*func)(TCGv, TCGv, target_long))
 {
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv src1 = get_gpr(ctx, a->rs1, EXT_NONE);
@@ -806,15 +926,16 @@ static bool gen_logic_imm_fn(DisasContext *ctx, arg_i *a,
 
         func(desth, src1h, -(a->imm < 0));
         gen_set_gpr128(ctx, a->rd, dest, desth);
-    } else {
+    }
+    else {
         gen_set_gpr(ctx, a->rd, dest);
     }
 
     return true;
 }
 
-static bool gen_logic(DisasContext *ctx, arg_r *a,
-                      void (*func)(TCGv, TCGv, TCGv))
+static bool gen_logic(DisasContext* ctx, arg_r* a,
+    void (*func)(TCGv, TCGv, TCGv))
 {
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv src1 = get_gpr(ctx, a->rs1, EXT_NONE);
@@ -829,16 +950,17 @@ static bool gen_logic(DisasContext *ctx, arg_r *a,
 
         func(desth, src1h, src2h);
         gen_set_gpr128(ctx, a->rd, dest, desth);
-    } else {
+    }
+    else {
         gen_set_gpr(ctx, a->rd, dest);
     }
 
     return true;
 }
 
-static bool gen_arith_imm_fn(DisasContext *ctx, arg_i *a, DisasExtend ext,
-                             void (*func)(TCGv, TCGv, target_long),
-                             void (*f128)(TCGv, TCGv, TCGv, TCGv, target_long))
+static bool gen_arith_imm_fn(DisasContext* ctx, arg_i* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv, target_long),
+    void (*f128)(TCGv, TCGv, TCGv, TCGv, target_long))
 {
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv src1 = get_gpr(ctx, a->rs1, ext);
@@ -846,7 +968,8 @@ static bool gen_arith_imm_fn(DisasContext *ctx, arg_i *a, DisasExtend ext,
     if (get_ol(ctx) < MXL_RV128) {
         func(dest, src1, a->imm);
         gen_set_gpr(ctx, a->rd, dest);
-    } else {
+    }
+    else {
         if (f128 == NULL) {
             return false;
         }
@@ -860,9 +983,9 @@ static bool gen_arith_imm_fn(DisasContext *ctx, arg_i *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_arith_imm_tl(DisasContext *ctx, arg_i *a, DisasExtend ext,
-                             void (*func)(TCGv, TCGv, TCGv),
-                             void (*f128)(TCGv, TCGv, TCGv, TCGv, TCGv, TCGv))
+static bool gen_arith_imm_tl(DisasContext* ctx, arg_i* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv, TCGv),
+    void (*f128)(TCGv, TCGv, TCGv, TCGv, TCGv, TCGv))
 {
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv src1 = get_gpr(ctx, a->rs1, ext);
@@ -871,7 +994,8 @@ static bool gen_arith_imm_tl(DisasContext *ctx, arg_i *a, DisasExtend ext,
     if (get_ol(ctx) < MXL_RV128) {
         func(dest, src1, src2);
         gen_set_gpr(ctx, a->rd, dest);
-    } else {
+    }
+    else {
         if (f128 == NULL) {
             return false;
         }
@@ -886,9 +1010,9 @@ static bool gen_arith_imm_tl(DisasContext *ctx, arg_i *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_arith(DisasContext *ctx, arg_r *a, DisasExtend ext,
-                      void (*func)(TCGv, TCGv, TCGv),
-                      void (*f128)(TCGv, TCGv, TCGv, TCGv, TCGv, TCGv))
+static bool gen_arith(DisasContext* ctx, arg_r* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv, TCGv),
+    void (*f128)(TCGv, TCGv, TCGv, TCGv, TCGv, TCGv))
 {
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv src1 = get_gpr(ctx, a->rs1, ext);
@@ -897,7 +1021,8 @@ static bool gen_arith(DisasContext *ctx, arg_r *a, DisasExtend ext,
     if (get_ol(ctx) < MXL_RV128) {
         func(dest, src1, src2);
         gen_set_gpr(ctx, a->rd, dest);
-    } else {
+    }
+    else {
         if (f128 == NULL) {
             return false;
         }
@@ -912,26 +1037,27 @@ static bool gen_arith(DisasContext *ctx, arg_r *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_arith_per_ol(DisasContext *ctx, arg_r *a, DisasExtend ext,
-                             void (*f_tl)(TCGv, TCGv, TCGv),
-                             void (*f_32)(TCGv, TCGv, TCGv),
-                             void (*f_128)(TCGv, TCGv, TCGv, TCGv, TCGv, TCGv))
+static bool gen_arith_per_ol(DisasContext* ctx, arg_r* a, DisasExtend ext,
+    void (*f_tl)(TCGv, TCGv, TCGv),
+    void (*f_32)(TCGv, TCGv, TCGv),
+    void (*f_128)(TCGv, TCGv, TCGv, TCGv, TCGv, TCGv))
 {
     int olen = get_olen(ctx);
 
     if (olen != TARGET_LONG_BITS) {
         if (olen == 32) {
             f_tl = f_32;
-        } else if (olen != 128) {
+        }
+        else if (olen != 128) {
             g_assert_not_reached();
         }
     }
     return gen_arith(ctx, a, ext, f_tl, f_128);
 }
 
-static bool gen_shift_imm_fn(DisasContext *ctx, arg_shift *a, DisasExtend ext,
-                             void (*func)(TCGv, TCGv, target_long),
-                             void (*f128)(TCGv, TCGv, TCGv, TCGv, target_long))
+static bool gen_shift_imm_fn(DisasContext* ctx, arg_shift* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv, target_long),
+    void (*f128)(TCGv, TCGv, TCGv, TCGv, target_long))
 {
     TCGv dest, src1;
     int max_len = get_olen(ctx);
@@ -946,7 +1072,8 @@ static bool gen_shift_imm_fn(DisasContext *ctx, arg_shift *a, DisasExtend ext,
     if (max_len < 128) {
         func(dest, src1, a->shamt);
         gen_set_gpr(ctx, a->rd, dest);
-    } else {
+    }
+    else {
         TCGv src1h = get_gprh(ctx, a->rs1);
         TCGv desth = dest_gprh(ctx, a->rd);
 
@@ -959,26 +1086,27 @@ static bool gen_shift_imm_fn(DisasContext *ctx, arg_shift *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_shift_imm_fn_per_ol(DisasContext *ctx, arg_shift *a,
-                                    DisasExtend ext,
-                                    void (*f_tl)(TCGv, TCGv, target_long),
-                                    void (*f_32)(TCGv, TCGv, target_long),
-                                    void (*f_128)(TCGv, TCGv, TCGv, TCGv,
-                                                  target_long))
+static bool gen_shift_imm_fn_per_ol(DisasContext* ctx, arg_shift* a,
+    DisasExtend ext,
+    void (*f_tl)(TCGv, TCGv, target_long),
+    void (*f_32)(TCGv, TCGv, target_long),
+    void (*f_128)(TCGv, TCGv, TCGv, TCGv,
+        target_long))
 {
     int olen = get_olen(ctx);
     if (olen != TARGET_LONG_BITS) {
         if (olen == 32) {
             f_tl = f_32;
-        } else if (olen != 128) {
+        }
+        else if (olen != 128) {
             g_assert_not_reached();
         }
     }
     return gen_shift_imm_fn(ctx, a, ext, f_tl, f_128);
 }
 
-static bool gen_shift_imm_tl(DisasContext *ctx, arg_shift *a, DisasExtend ext,
-                             void (*func)(TCGv, TCGv, TCGv))
+static bool gen_shift_imm_tl(DisasContext* ctx, arg_shift* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv, TCGv))
 {
     TCGv dest, src1, src2;
     int max_len = get_olen(ctx);
@@ -997,9 +1125,9 @@ static bool gen_shift_imm_tl(DisasContext *ctx, arg_shift *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_shift(DisasContext *ctx, arg_r *a, DisasExtend ext,
-                      void (*func)(TCGv, TCGv, TCGv),
-                      void (*f128)(TCGv, TCGv, TCGv, TCGv, TCGv))
+static bool gen_shift(DisasContext* ctx, arg_r* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv, TCGv),
+    void (*f128)(TCGv, TCGv, TCGv, TCGv, TCGv))
 {
     TCGv src2 = get_gpr(ctx, a->rs2, EXT_NONE);
     TCGv ext2 = tcg_temp_new();
@@ -1013,7 +1141,8 @@ static bool gen_shift(DisasContext *ctx, arg_r *a, DisasExtend ext,
     if (max_len < 128) {
         func(dest, src1, ext2);
         gen_set_gpr(ctx, a->rd, dest);
-    } else {
+    }
+    else {
         TCGv src1h = get_gprh(ctx, a->rs1);
         TCGv desth = dest_gprh(ctx, a->rd);
 
@@ -1026,24 +1155,25 @@ static bool gen_shift(DisasContext *ctx, arg_r *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_shift_per_ol(DisasContext *ctx, arg_r *a, DisasExtend ext,
-                             void (*f_tl)(TCGv, TCGv, TCGv),
-                             void (*f_32)(TCGv, TCGv, TCGv),
-                             void (*f_128)(TCGv, TCGv, TCGv, TCGv, TCGv))
+static bool gen_shift_per_ol(DisasContext* ctx, arg_r* a, DisasExtend ext,
+    void (*f_tl)(TCGv, TCGv, TCGv),
+    void (*f_32)(TCGv, TCGv, TCGv),
+    void (*f_128)(TCGv, TCGv, TCGv, TCGv, TCGv))
 {
     int olen = get_olen(ctx);
     if (olen != TARGET_LONG_BITS) {
         if (olen == 32) {
             f_tl = f_32;
-        } else if (olen != 128) {
+        }
+        else if (olen != 128) {
             g_assert_not_reached();
         }
     }
     return gen_shift(ctx, a, ext, f_tl, f_128);
 }
 
-static bool gen_unary(DisasContext *ctx, arg_r2 *a, DisasExtend ext,
-                      void (*func)(TCGv, TCGv))
+static bool gen_unary(DisasContext* ctx, arg_r2* a, DisasExtend ext,
+    void (*func)(TCGv, TCGv))
 {
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv src1 = get_gpr(ctx, a->rs1, ext);
@@ -1054,27 +1184,28 @@ static bool gen_unary(DisasContext *ctx, arg_r2 *a, DisasExtend ext,
     return true;
 }
 
-static bool gen_unary_per_ol(DisasContext *ctx, arg_r2 *a, DisasExtend ext,
-                             void (*f_tl)(TCGv, TCGv),
-                             void (*f_32)(TCGv, TCGv))
+static bool gen_unary_per_ol(DisasContext* ctx, arg_r2* a, DisasExtend ext,
+    void (*f_tl)(TCGv, TCGv),
+    void (*f_32)(TCGv, TCGv))
 {
     int olen = get_olen(ctx);
 
     if (olen != TARGET_LONG_BITS) {
         if (olen == 32) {
             f_tl = f_32;
-        } else {
+        }
+        else {
             g_assert_not_reached();
         }
     }
     return gen_unary(ctx, a, ext, f_tl);
 }
 
-static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
+static uint32_t opcode_at(DisasContextBase* dcbase, target_ulong pc)
 {
-    DisasContext *ctx = container_of(dcbase, DisasContext, base);
-    CPUState *cpu = ctx->cs;
-    CPURISCVState *env = cpu_env(cpu);
+    DisasContext* ctx = container_of(dcbase, DisasContext, base);
+    CPUState* cpu = ctx->cs;
+    CPURISCVState* env = cpu_env(cpu);
 
     return cpu_ldl_code(env, pc);
 }
@@ -1118,15 +1249,15 @@ static inline int insn_len(uint16_t first_word)
     return (first_word & 3) == 3 ? 4 : 2;
 }
 
-static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
+static void decode_opc(CPURISCVState* env, DisasContext* ctx, uint16_t opcode)
 {
     /*
      * A table with predicate (i.e., guard) functions and decoder functions
      * that are tested in-order until a decoder matches onto the opcode.
      */
     static const struct {
-        bool (*guard_func)(const RISCVCPUConfig *);
-        bool (*decode_func)(DisasContext *, uint32_t);
+        bool (*guard_func)(const RISCVCPUConfig*);
+        bool (*decode_func)(DisasContext*, uint32_t);
     } decoders[] = {
         { always_true_p,  decode_insn32 },
         { has_xthead_p, decode_xthead },
@@ -1146,11 +1277,12 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
             decode_insn16(ctx, opcode)) {
             return;
         }
-    } else {
+    }
+    else {
         uint32_t opcode32 = opcode;
         opcode32 = deposit32(opcode32, 16, 16,
-                             translator_lduw(env, &ctx->base,
-                                             ctx->base.pc_next + 2));
+            translator_lduw(env, &ctx->base,
+                ctx->base.pc_next + 2));
         ctx->opcode = opcode32;
 
         for (size_t i = 0; i < ARRAY_SIZE(decoders); ++i) {
@@ -1164,11 +1296,11 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
     gen_exception_illegal(ctx);
 }
 
-static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
+static void riscv_tr_init_disas_context(DisasContextBase* dcbase, CPUState* cs)
 {
-    DisasContext *ctx = container_of(dcbase, DisasContext, base);
-    CPURISCVState *env = cpu_env(cs);
-    RISCVCPU *cpu = RISCV_CPU(cs);
+    DisasContext* ctx = container_of(dcbase, DisasContext, base);
+    CPURISCVState* env = cpu_env(cs);
+    RISCVCPU* cpu = RISCV_CPU(cs);
     uint32_t tb_flags = ctx->base.tb->flags;
 
     ctx->pc_save = ctx->base.pc_first;
@@ -1200,13 +1332,13 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->virt_inst_excp = false;
 }
 
-static void riscv_tr_tb_start(DisasContextBase *db, CPUState *cpu)
+static void riscv_tr_tb_start(DisasContextBase* db, CPUState* cpu)
 {
 }
 
-static void riscv_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
+static void riscv_tr_insn_start(DisasContextBase* dcbase, CPUState* cpu)
 {
-    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+    DisasContext* ctx = container_of(dcbase, DisasContext, base);
     target_ulong pc_next = ctx->base.pc_next;
 
     if (tb_cflags(dcbase->tb) & CF_PCREL) {
@@ -1217,10 +1349,10 @@ static void riscv_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
     ctx->insn_start = tcg_last_op();
 }
 
-static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+static void riscv_tr_translate_insn(DisasContextBase* dcbase, CPUState* cpu)
 {
-    DisasContext *ctx = container_of(dcbase, DisasContext, base);
-    CPURISCVState *env = cpu_env(cpu);
+    DisasContext* ctx = container_of(dcbase, DisasContext, base);
+    CPURISCVState* env = cpu_env(cpu);
     uint16_t opcode16 = translator_lduw(env, &ctx->base, ctx->base.pc_next);
 
     ctx->ol = ctx->xl;
@@ -1231,7 +1363,8 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     if (ctx->base.is_jmp == DISAS_NEXT) {
         if (ctx->itrigger || !is_same_page(&ctx->base, ctx->base.pc_next)) {
             ctx->base.is_jmp = DISAS_TOO_MANY;
-        } else {
+        }
+        else {
             unsigned page_ofs = ctx->base.pc_next & ~TARGET_PAGE_MASK;
 
             if (page_ofs > TARGET_PAGE_SIZE - MAX_INSN_LEN) {
@@ -1246,9 +1379,9 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     }
 }
 
-static void riscv_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
+static void riscv_tr_tb_stop(DisasContextBase* dcbase, CPUState* cpu)
 {
-    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+    DisasContext* ctx = container_of(dcbase, DisasContext, base);
 
     switch (ctx->base.is_jmp) {
     case DISAS_TOO_MANY:
@@ -1261,33 +1394,33 @@ static void riscv_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
     }
 }
 
-static void riscv_tr_disas_log(const DisasContextBase *dcbase,
-                               CPUState *cpu, FILE *logfile)
+static void riscv_tr_disas_log(const DisasContextBase* dcbase,
+    CPUState* cpu, FILE* logfile)
 {
 #ifndef CONFIG_USER_ONLY
-    RISCVCPU *rvcpu = RISCV_CPU(cpu);
-    CPURISCVState *env = &rvcpu->env;
+    RISCVCPU* rvcpu = RISCV_CPU(cpu);
+    CPURISCVState* env = &rvcpu->env;
 #endif
 
     fprintf(logfile, "IN: %s\n", lookup_symbol(dcbase->pc_first));
 #ifndef CONFIG_USER_ONLY
     fprintf(logfile, "Priv: "TARGET_FMT_ld"; Virt: %d\n",
-            env->priv, env->virt_enabled);
+        env->priv, env->virt_enabled);
 #endif
     target_disas(logfile, cpu, dcbase->pc_first, dcbase->tb->size);
 }
 
 static const TranslatorOps riscv_tr_ops = {
     .init_disas_context = riscv_tr_init_disas_context,
-    .tb_start           = riscv_tr_tb_start,
-    .insn_start         = riscv_tr_insn_start,
-    .translate_insn     = riscv_tr_translate_insn,
-    .tb_stop            = riscv_tr_tb_stop,
-    .disas_log          = riscv_tr_disas_log,
+    .tb_start = riscv_tr_tb_start,
+    .insn_start = riscv_tr_insn_start,
+    .translate_insn = riscv_tr_translate_insn,
+    .tb_stop = riscv_tr_tb_stop,
+    .disas_log = riscv_tr_disas_log,
 };
 
-void gen_intermediate_code(CPUState *cs, TranslationBlock *tb, int *max_insns,
-                           target_ulong pc, void *host_pc)
+void gen_intermediate_code(CPUState* cs, TranslationBlock* tb, int* max_insns,
+    target_ulong pc, void* host_pc)
 {
     DisasContext ctx;
 
@@ -1318,17 +1451,22 @@ void riscv_translate_init(void)
             offsetof(CPURISCVState, fpr[i]), riscv_fpr_regnames[i]);
     }
 
+    for (i = 0; i < NUMSREG; i++) {
+        cpu_sreg[i] = tcg_global_mem_new_i64(tcg_env,
+            offsetof(CPURISCVState, sreg[i]), riscv_sec_regnames[i]);
+    }
+
     cpu_pc = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, pc), "pc");
     cpu_vl = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, vl), "vl");
     cpu_vstart = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, vstart),
-                            "vstart");
+        "vstart");
     load_res = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, load_res),
-                             "load_res");
+        "load_res");
     load_val = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, load_val),
-                             "load_val");
+        "load_val");
     /* Assign PM CSRs to tcg globals */
     pm_mask = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, cur_pmmask),
-                                 "pmmask");
+        "pmmask");
     pm_base = tcg_global_mem_new(tcg_env, offsetof(CPURISCVState, cur_pmbase),
-                                 "pmbase");
+        "pmbase");
 }

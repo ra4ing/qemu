@@ -109,6 +109,13 @@
 @cm_mv        ... ...  ... .. ... ..  &r2_s  rs2=%r2s     rs1=%r1s
 @cm_jt        ... ...  ........   ..  &cmjt  %index
 
+
+# security extension
+# c_sjr     101 1 ..... 11011 11 @c_jalr rd=0  # C.SJR
+# c_sjalr   111 1 ..... 11011 11 @c_jalr rd=1  # C.SJALR
+# sjal      101   ........... 11 @cj    rd=0  # C.SJ
+
+
 # *** RV32/64C Standard Extension (Quadrant 0) ***
 {
   # Opcode of all zeros is illegal; rd != 0, nzuimm == 0 is reserved.

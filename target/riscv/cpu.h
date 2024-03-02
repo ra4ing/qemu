@@ -139,9 +139,7 @@ typedef struct PMUCTRState {
 struct CPUArchState {
     target_ulong gpr[32];
     target_ulong gprh[32]; /* 64 top bits of the 128-bit registers */
-
-    /* custom register */
-    target_ulong ic;        /* instruction_count */
+    uint64_t sreg[5];        /* security registers */
 
     /* vector coprocessor state. */
     uint64_t vreg[32 * RV_VLEN_MAX / 64] QEMU_ALIGNED(16);
@@ -464,7 +462,8 @@ static inline int riscv_has_ext(CPURISCVState *env, target_ulong ext)
 
 extern const char * const riscv_int_regnames[];
 extern const char * const riscv_int_regnamesh[];
-extern const char * const riscv_fpr_regnames[];
+extern const char* const riscv_fpr_regnames[];
+extern const char* const riscv_sec_regnames[];
 
 const char *riscv_cpu_get_trap_name(target_ulong cause, bool async);
 void riscv_cpu_do_interrupt(CPUState *cpu);

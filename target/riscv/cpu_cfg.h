@@ -134,6 +134,10 @@ struct RISCVCPUConfig {
     bool ext_xtheadsync;
     bool ext_XVentanaCondOps;
 
+    /* security extension */
+    bool ext_xo;
+    bool ext_xosec;
+    
     uint32_t pmu_mask;
     char *priv_spec;
     char *user_spec;
