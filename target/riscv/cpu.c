@@ -1388,8 +1388,7 @@ const RISCVCPUMultiExtConfig riscv_cpu_extensions[] = {
     MULTI_EXT_CFG_BOOL("zvksg", ext_zvksg, false),
 
     /* security extension */
-    MULTI_EXT_CFG_BOOL("xo", ext_xosec, true),
-    MULTI_EXT_CFG_BOOL("xosec", ext_xosec, true),
+    MULTI_EXT_CFG_BOOL("xsec", ext_xsec, true),
 
     DEFINE_PROP_END_OF_LIST(),
 };

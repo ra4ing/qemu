@@ -381,6 +381,24 @@ static void gen_check_reta(DisasContext* ctx, TCGv target_pc)
     gen_set_label(done);
 }
 
+static void gen_check_jmpa(DisasContext* ctx, TCGv target_pc)
+{
+    TCGLabel* label_error = gen_new_label();
+    TCGLabel* done = gen_new_label();
+
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[JMPA], 0, label_error);
+    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[JMPA], target_pc, label_error);
+    tcg_gen_movi_tl(cpu_sreg[JMPA], 0);
+    tcg_gen_br(done);
+
+    // error
+    gen_set_label(label_error);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR);
+
+    // done
+    gen_set_label(done);
+}
+
 static void gen_set_reta(DisasContext* ctx, TCGv t)
 {
     TCGLabel* label_error = gen_new_label();
@@ -388,26 +406,6 @@ static void gen_set_reta(DisasContext* ctx, TCGv t)
 
     tcg_gen_brcondi_tl(TCG_COND_NE, cpu_sreg[RETA], 0, label_error);
     tcg_gen_mov_tl(cpu_sreg[RETA], t);
-    tcg_gen_br(done);
-
-    // error
-    gen_set_label(label_error);
-    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
-
-    // done
-    gen_set_label(done);
-}
-
-static void gen_check_jmpa(DisasContext* ctx, int rd, int imm)
-{
-    TCGLabel* label_error = gen_new_label();
-    TCGLabel* done = gen_new_label();
-    TCGv target_address = tcg_temp_new();
-    tcg_gen_movi_tl(target_address, imm);
-
-    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[JMPA], 0, label_error);
-    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[JMPA], target_address, label_error);
-    tcg_gen_movi_tl(cpu_sreg[JMPA], 0);
     tcg_gen_br(done);
 
     // error
