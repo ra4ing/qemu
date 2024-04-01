@@ -345,7 +345,7 @@ static void gen_set_ic(DisasContext* ctx, TCGv ica, TCGv ic)
 
     // check if cpu_sreg[ICA] equals 0
     tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[ICA], 0, label_ica_is_zero);
-    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[ICA], cpu_pc, label_error);
+    tcg_gen_brcond_tl(TCG_COND_NE, cpu_sreg[ICA], cpu_pc, label_error);
 
     // set ica and ic
     gen_set_label(label_ica_is_zero);
@@ -369,7 +369,7 @@ static void gen_check_reta(DisasContext* ctx, TCGv target_pc)
     TCGLabel* done = gen_new_label();
 
     tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[RETA], 0, label_error);
-    tcg_gen_brcond_tl(TCG_COND_LT, cpu_sreg[RETA], target_pc, label_error);
+    tcg_gen_brcond_tl(TCG_COND_NE, cpu_sreg[RETA], target_pc, label_error);
     tcg_gen_movi_tl(cpu_sreg[RETA], 0);
     tcg_gen_br(done);
 
