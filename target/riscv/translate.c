@@ -19,6 +19,7 @@
 #include "qemu/osdep.h"
 #include "qemu/log.h"
 #include "cpu.h"
+#include "tcg/tcg-op-common.h"
 #include "tcg/tcg-op.h"
 #include "disas/disas.h"
 #include "exec/cpu_ldst.h"
@@ -32,6 +33,7 @@
 
 #include "instmap.h"
 #include "internals.h"
+#include "tcg/tcg.h"
 
 #define HELPER_H "helper.h"
 #include "exec/helper-info.c.inc"
@@ -41,7 +43,7 @@
  /* global register indices */
 static TCGv cpu_gpr[32], cpu_gprh[32], cpu_pc, cpu_vl, cpu_vstart;
 static TCGv_i64 cpu_fpr[32]; /* assume F and D extensions */
-static TCGv_i64 cpu_sreg[NUMSREG]; /* assume Security extension */
+static TCGv cpu_sreg[NUMSREG]; /* assume Security extension */
 static TCGv load_res;
 static TCGv load_val;
 /* globals for PM CSRs */
@@ -330,13 +332,6 @@ static void gen_goto_tb(DisasContext* ctx, int n, target_long diff)
 #define IC   3
 #define ERR  4
 
- // static void gen_raise_exception(DisasContext* ctx)
- // {
- //     CPUState* cpu = ctx->cs;
- //     cpu->exception_index = RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR;
- //     cpu_loop_exit(cpu);
- // }
-
 static void gen_set_ic(DisasContext* ctx, TCGv ica, TCGv ic)
 {
     TCGLabel* label_ica_is_zero = gen_new_label();
@@ -359,8 +354,6 @@ static void gen_set_ic(DisasContext* ctx, TCGv ica, TCGv ic)
 
     // done
     gen_set_label(done);
-
-
 }
 
 static void gen_check_reta(DisasContext* ctx, TCGv target_pc)
@@ -1450,7 +1443,7 @@ void riscv_translate_init(void)
     }
 
     for (i = 0; i < NUMSREG; i++) {
-        cpu_sreg[i] = tcg_global_mem_new_i64(tcg_env,
+        cpu_sreg[i] = tcg_global_mem_new(tcg_env,
             offsetof(CPURISCVState, sreg[i]), riscv_sec_regnames[i]);
     }
 
