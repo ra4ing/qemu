@@ -16,6 +16,7 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "cpu_bits.h"
 #include "qemu/osdep.h"
 #include "qemu/log.h"
 #include "cpu.h"
@@ -338,8 +339,8 @@ static void gen_set_ic(DisasContext* ctx, TCGv ica, TCGv ic)
     TCGLabel* label_error = gen_new_label();
     TCGLabel* done = gen_new_label();
 
-    // check if cpu_sreg[ICA] equals 0
-    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[ICA], 0, label_ica_is_zero);
+    // check if cpu_sreg[IC] equals 0
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_sreg[IC], 0, label_ica_is_zero);
     tcg_gen_brcond_tl(TCG_COND_NE, cpu_sreg[ICA], cpu_pc, label_error);
 
     // set ica and ic
@@ -350,7 +351,7 @@ static void gen_set_ic(DisasContext* ctx, TCGv ica, TCGv ic)
 
     // error
     gen_set_label(label_error);
-    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_INSTRUCTION_COUNT_SET_ERROR);
 
     // done
     gen_set_label(done);
@@ -368,7 +369,7 @@ static void gen_check_reta(DisasContext* ctx, TCGv target_pc)
 
     // error
     gen_set_label(label_error);
-    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_ILLEGAL_RET_ERROR);
 
     // done
     gen_set_label(done);
@@ -386,7 +387,7 @@ static void gen_check_jmpa(DisasContext* ctx, TCGv target_pc)
 
     // error
     gen_set_label(label_error);
-    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_INSTRUCTION_COUNT_OVERFLOW_ERROR);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_ILLEGAL_JMP_ERROR);
 
     // done
     gen_set_label(done);
@@ -403,7 +404,7 @@ static void gen_set_reta(DisasContext* ctx, TCGv t)
 
     // error
     gen_set_label(label_error);
-    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_SET_RET_ERROR);
 
     // done
     gen_set_label(done);
@@ -420,7 +421,7 @@ static void gen_set_jmpa(DisasContext* ctx, TCGv t)
 
     // error
     gen_set_label(label_error);
-    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_BREAKPOINT);
+    tcg_gen_movi_tl(cpu_sreg[ERR], RISCV_EXCP_SET_JMP_ERROR);
 
     // done
     gen_set_label(done);
