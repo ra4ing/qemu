@@ -522,7 +522,7 @@ cpu_tb_exec(CPUState* cpu, TranslationBlock* itb, int* tb_exit)
         cpu_loop_exit(cpu);
     }
     if (env->sreg[IC] > 0) {
-        qemu_log("ic = %d\t0x%x\t0x%x\n", (unsigned int)env->sreg[IC], (unsigned int)env->sreg[ICA], (unsigned int)env->pc);
+        // qemu_log("ic = %d\t0x%x\t0x%x\n", (unsigned int)env->sreg[IC], (unsigned int)env->sreg[ICA], (unsigned int)env->pc);
         if (env->sreg[IC] > itb->icount) {
             env->sreg[IC] -= itb->icount;
             if (env->sreg[IC] <= 0) {
@@ -537,7 +537,6 @@ cpu_tb_exec(CPUState* cpu, TranslationBlock* itb, int* tb_exit)
             cpu_loop_exit(cpu);
         }
     }
-
 #endif
 
 
